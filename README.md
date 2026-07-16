@@ -94,16 +94,16 @@ Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot.
 
 ## Docker Deployment
 
-Build the API image using `server/Dockerfile`:
+For the API Cloud Run service, set the source root to `server/` and set the Dockerfile path to `Dockerfile`.
 
 ```bash
-docker build -f server/Dockerfile -t wema-mcp-api .
+docker build -f Dockerfile -t wema-mcp-api .
 ```
 
-Build the Telegram bot image using `tgbot/Dockerfile`:
+For the Telegram bot Cloud Run service, set the source root to `tgbot/` and set the Dockerfile path to `Dockerfile`.
 
 ```bash
-docker build -f tgbot/Dockerfile -t wema-telegram-bot .
+docker build -f Dockerfile -t wema-telegram-bot .
 ```
 
 Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
