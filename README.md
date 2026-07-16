@@ -3,9 +3,6 @@
 ## Team Members
 - Rehoboth Okoibu
 - Emmanuel Fidelis
-- [Name 3]
-- [Name 4]
-- [Name 5]
 
 ---
 
