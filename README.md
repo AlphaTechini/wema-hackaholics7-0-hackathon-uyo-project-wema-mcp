@@ -41,7 +41,7 @@ The MCP server exposes these tools:
 ## Architecture
 
 - `server/` contains the Fastify REST API, database layer, controllers, routes, and MCP server.
-- `telegram-bot/` contains the Telegram conversation flow, Gemini integration, MCP client, and deployment files.
+- `tgbot/` contains the Telegram conversation flow, Gemini integration, MCP client, and deployment files.
 - `server/mcp/telegram-agent-instructions.md` contains the conversational rules used by the agent.
 - The MCP endpoint is mounted at `/mcp` on the API service.
 - The API container listens on port `3870` by default and honors the platform `PORT` environment variable.
@@ -79,11 +79,11 @@ The local API and MCP service starts on `http://localhost:3870`. The MCP endpoin
 ### Telegram bot
 
 ```bash
-cd telegram-bot
+cd tgbot
 python -m venv .venv
 ```
 
-Activate the virtual environment, install dependencies, and create `telegram-bot/.env` from [telegram-bot/.env.example](telegram-bot/.env.example).
+Activate the virtual environment, install dependencies, and create `tgbot/.env` from [tgbot/.env.example](tgbot/.env.example).
 
 ```bash
 pip install -r requirements.txt
@@ -94,16 +94,16 @@ Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot.
 
 ## Docker Deployment
 
-Build the API image from the repository root:
+Build the API image using `server/Dockerfile`:
 
 ```bash
-docker build -t wema-mcp-api .
+docker build -f server/Dockerfile -t wema-mcp-api .
 ```
 
-Build the Telegram bot image from its directory:
+Build the Telegram bot image using `tgbot/Dockerfile`:
 
 ```bash
-docker build -t wema-telegram-bot ./telegram-bot
+docker build -f tgbot/Dockerfile -t wema-telegram-bot .
 ```
 
 Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
@@ -120,5 +120,5 @@ Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` o
 - [Project structure](structure.md)
 - [API documentation](server/README.md)
 - [MCP documentation](server/mcp/README.md)
-- [Telegram bot documentation](telegram-bot/README.md)
+- [Telegram bot documentation](tgbot/README.md)
 - [Agent instructions](server/mcp/telegram-agent-instructions.md)

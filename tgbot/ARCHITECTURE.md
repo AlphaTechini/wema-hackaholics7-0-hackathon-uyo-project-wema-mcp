@@ -677,7 +677,7 @@ Demo credentials:
 ## 12. File Index
 
 ```
-Tg-bot/
+tgbot/
 ├── bot.py                Telegram bot — UI, AI, voice, security gates
 ├── mcp_client.py         Official MCP Streamable HTTP client
 ├── tools.json            OpenAI-compatible catalogue for the four Wema tools
