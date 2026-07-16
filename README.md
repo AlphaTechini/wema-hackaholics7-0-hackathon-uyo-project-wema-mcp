@@ -1,8 +1,8 @@
 # [Project Title]
 
 ## Team Members
-- [Name 1]
-- [Name 2]
+- Rehoboth Okoibu
+- Emmanuel Fidelis
 - [Name 3]
 - [Name 4]
 - [Name 5]
