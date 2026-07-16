@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "types": ["node"],                  // 👈 Force TS to load Node types
+    "typeRoots": ["./node_modules/@types"] // 👈 Explicitly point to the local types
+  },
+  "include": ["**/*.ts"]
+}
