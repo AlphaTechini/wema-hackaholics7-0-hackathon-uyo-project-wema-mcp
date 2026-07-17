@@ -56,7 +56,7 @@ load_dotenv(f".env.{_env}", override=True)
 TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 NEAR_AI_API_KEY: str = os.getenv("NEAR_AI_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-NEAR_AI_MODEL: str = os.getenv("NEAR_AI_MODEL", "deepseek-ai/DeepSeek-V3.1")
+NEAR_AI_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 AI_TIMEOUT_SECONDS: float = float(os.getenv("AI_TIMEOUT_SECONDS", "15"))
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
@@ -115,7 +115,7 @@ logger = logging.getLogger(__name__)
 
 near_ai_client = (
     OpenAI(
-        base_url="https://cloud-api.near.ai/v1",
+        base_url="https://dsv4-flash.completions.near.ai/v1",
         api_key=NEAR_AI_API_KEY,
         max_retries=0,
         timeout=AI_TIMEOUT_SECONDS,

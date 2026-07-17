@@ -7,13 +7,12 @@ Set these values in Cloud Run or Secret Manager:
 - `TELEGRAM_BOT_TOKEN`: token issued by BotFather.
 - `NEAR_AI_API_KEY`: primary NEAR AI Cloud inference key.
 - `GEMINI_API_KEY`: Gemini API key used by the assistant.
-- `NEAR_AI_MODEL`: primary model, defaulting to `deepseek-ai/DeepSeek-V3.1`.
 - `GEMINI_MODEL`: fallback model, defaulting to `gemini-2.5-flash-lite`.
 - `AI_TIMEOUT_SECONDS`: per-provider request timeout, defaulting to `15`.
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
 
-The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use NEAR AI Cloud first and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
+The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use NEAR AI Cloud's direct `dsv4-flash.completions.near.ai` endpoint with `deepseek-ai/DeepSeek-V4-Flash`, avoiding the gateway routing hop, and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
 
 To find the Telegram polling startup and update handling logic visit [bot.py](bot.py).
 

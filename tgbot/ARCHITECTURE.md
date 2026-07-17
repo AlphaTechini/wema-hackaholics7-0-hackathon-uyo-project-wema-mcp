@@ -2,7 +2,7 @@
 
 > Status: Proof-of-concept / testing phase
 > Last updated: 2026-07-14
-> Stack: Python 3.9+, python-telegram-bot 21, FastAPI, NEAR AI primary with Gemini fallback
+> Stack: Python 3.9+, python-telegram-bot 21, FastAPI, NEAR AI Direct DeepSeek V4 Flash with Gemini fallback
 
 ---
 

@@ -90,7 +90,7 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot. The bot uses NEAR AI Cloud as its primary chat provider and Gemini as its fallback. Telegram updates use long polling.
+Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot. The bot uses NEAR AI Cloud's direct DeepSeek V4 Flash endpoint as its primary chat provider and Gemini as its fallback. Telegram updates use long polling.
 
 ## Docker Deployment
 
