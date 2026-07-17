@@ -90,7 +90,7 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot. The bot uses Electron Hub as its primary chat provider and Gemini as its fallback. Telegram updates use long polling.
+Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot. The bot uses NEAR AI Cloud as its primary chat provider and Gemini as its fallback. Telegram updates use long polling.
 
 ## Docker Deployment
 
@@ -106,7 +106,7 @@ For the Telegram bot Cloud Run service, set the source root to `tgbot/` and set 
 docker build -f Dockerfile -t wema-telegram-bot .
 ```
 
-Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `ELECTRONHUB_API_KEY`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. For polling, use one minimum instance, one maximum instance, and always-allocated CPU. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
+Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `NEAR_AI_API_KEY`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. For polling, use one minimum instance, one maximum instance, and always-allocated CPU. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
 
 ## Security Notes
 

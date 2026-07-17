@@ -1,7 +1,7 @@
 """
 bot.py
 ------
-Telegram banking bot backed by the Wema MCP API + Electron Hub/Gemini AI.
+Telegram banking bot backed by the Wema MCP API + NEAR AI/Gemini AI.
 
 Flow
 ----
@@ -10,7 +10,7 @@ Flow
               ├── 💸 Transfer      → ask account → ask amount → confirm → send
               └── 📋 History       → fetch statement through MCP
 
-Free-text at any time falls through to Electron Hub with Gemini failover.
+Free-text at any time falls through to NEAR AI with Gemini failover.
 Voice messages are transcribed then handled the same way.
 """
 
@@ -53,9 +53,9 @@ load_dotenv(f".env.{_env}", override=True)
 # ---------------------------------------------------------------------------
 
 TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
-ELECTRONHUB_API_KEY: str = os.getenv("ELECTRONHUB_API_KEY", "")
+NEAR_AI_API_KEY: str = os.getenv("NEAR_AI_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-ELECTRONHUB_MODEL: str = os.getenv("ELECTRONHUB_MODEL", "deepseek-v4-flash")
+NEAR_AI_MODEL: str = os.getenv("NEAR_AI_MODEL", "deepseek-ai/DeepSeek-V3.1")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
@@ -111,14 +111,14 @@ logger = logging.getLogger(__name__)
 # AI provider clients
 # ---------------------------------------------------------------------------
 
-electronhub_client = (
+near_ai_client = (
     OpenAI(
-        base_url="https://api.electronhub.ai/v1",
-        api_key=ELECTRONHUB_API_KEY,
+        base_url="https://cloud-api.near.ai/v1",
+        api_key=NEAR_AI_API_KEY,
         max_retries=0,
         timeout=30.0,
     )
-    if ELECTRONHUB_API_KEY
+    if NEAR_AI_API_KEY
     else None
 )
 gemini_client = (
@@ -133,7 +133,7 @@ gemini_client = (
 )
 
 AI_PROVIDERS: dict[str, tuple[Any, str]] = {
-    "electronhub": (electronhub_client, ELECTRONHUB_MODEL),
+    "near_ai": (near_ai_client, NEAR_AI_MODEL),
     "gemini": (gemini_client, GEMINI_MODEL),
 }
 
@@ -281,7 +281,7 @@ def _chat(provider: str, messages: list[dict], **kwargs):
 
 
 def _provider_order(preferred_provider: str | None) -> list[str]:
-    providers = ["electronhub", "gemini"]
+    providers = ["near_ai", "gemini"]
     if preferred_provider in providers:
         providers.remove(preferred_provider)
         providers.insert(0, preferred_provider)
@@ -1450,8 +1450,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 def main() -> None:
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
-    if not ELECTRONHUB_API_KEY:
-        raise ValueError("ELECTRONHUB_API_KEY is not set")
+    if not NEAR_AI_API_KEY:
+        raise ValueError("NEAR_AI_API_KEY is not set")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -1516,8 +1516,8 @@ def main() -> None:
 
     logger.info(
         "Bot starting — polling  primary: %s/%s  fallback: gemini/%s  MCP: %s",
-        "electronhub",
-        ELECTRONHUB_MODEL,
+        "near_ai",
+        NEAR_AI_MODEL,
         GEMINI_MODEL,
         MCP_URL,
     )

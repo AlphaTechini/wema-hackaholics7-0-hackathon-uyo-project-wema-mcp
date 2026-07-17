@@ -2,7 +2,7 @@
 
 > Status: Proof-of-concept / testing phase
 > Last updated: 2026-07-14
-> Stack: Python 3.9+, python-telegram-bot 21, FastAPI, Electron Hub primary with Gemini fallback
+> Stack: Python 3.9+, python-telegram-bot 21, FastAPI, NEAR AI primary with Gemini fallback
 
 ---
 
@@ -42,7 +42,7 @@ Telegram User
 │  ├── Airtime/Data flow (4-5 steps)           │
 │  └── PIN confirmation gate (all debits)      │
 │                                              │
-│  AI engine (Electron Hub / Gemini OpenAI SDK)│
+│  AI engine (NEAR AI / Gemini OpenAI SDK)     │
 │  ├── Load history  ──────────────────────────│──► GET  /context/{user_id}
 │  ├── Intercept debits → PIN gate             │
 │  ├── Call safe tools  ───────────────────────│──► POST /call  {user_id}
@@ -198,7 +198,7 @@ The bot loads this file at startup and forwards tool calls through `mcp_client.p
 ```
 tools.json
     │
-    └──► bot.py         TOOLS list — passed to Electron Hub, then Gemini on failure
+    └──► bot.py         TOOLS list — passed to NEAR AI, then Gemini on failure
                          mcp_client.py → official tools/call
 ```
 
