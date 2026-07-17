@@ -2,6 +2,20 @@
     {
         "type": "function",
         "function": {
+            "name": "get_balance",
+            "description": "Retrieve the current balance for the user's bound account.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_number": {"type": "integer"}
+                },
+                "required": ["account_number"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "update_account",
             "description": "Update an account email address or phone number.",
             "parameters": {

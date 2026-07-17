@@ -34,6 +34,9 @@ Account creation is conversational and state-aware. The agent extracts fields in
 The MCP server exposes these tools:
 
 - `create_account`
+- `verify_account_pin` (native account-switch flow only)
+- `check_telegram_ban` (native bot security flow only)
+- `get_balance`
 - `update_account`
 - `get_statement`
 - `create_transfer`
@@ -106,7 +109,7 @@ For the Telegram bot Cloud Run service, set the source root to `tgbot/` and set 
 docker build -f Dockerfile -t wema-telegram-bot .
 ```
 
-Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `NEAR_AI_API_KEY`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. For polling, use one minimum instance, one maximum instance, and always-allocated CPU. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
+Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `NEAR_AI_API_KEY`, `GEMINI_API_KEY`, and `MCP_SERVER_URL` on the Telegram bot service. For polling, use one minimum instance, one maximum instance, and always-allocated CPU. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
 
 ## Security Notes
 

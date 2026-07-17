@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { createAccount } from '../controllers/createAccount.js';
 import { updateAccount } from '../controllers/updateAccount.js';
+import { getBalance } from '../controllers/getBalance.js';
+import { verifyAccountPin } from '../controllers/verifyAccountPin.js';
 import { getStatement } from '../controllers/getStatement.js';
 
 export default async function accountsRoutes(fastify: FastifyInstance) {
@@ -39,6 +41,39 @@ export default async function accountsRoutes(fastify: FastifyInstance) {
       }
     }
   }, updateAccount);
+
+  fastify.get('/:id/balance', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' }
+        }
+      }
+    }
+  }, getBalance);
+
+  fastify.post('/:id/verify-pin', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: {
+          id: { type: 'string' }
+        }
+      },
+      body: {
+        type: 'object',
+        required: ['telegram_user_id', 'pin'],
+        additionalProperties: false,
+        properties: {
+          telegram_user_id: { type: 'string', minLength: 1, maxLength: 64 },
+          pin: { type: 'string', minLength: 1, maxLength: 100 }
+        }
+      }
+    }
+  }, verifyAccountPin);
 
   fastify.get('/:id/statement', {
     schema: {

@@ -1,6 +1,7 @@
 import fastify from 'fastify';
 import accountsRoutes from './routes/accounts.js';
 import transfersRoutes from './routes/transfers.js';
+import telegramSecurityRoutes from './routes/telegramSecurity.js';
 import { registerMcp } from './mcp/register.js';
 import 'dotenv/config';
 
@@ -10,6 +11,7 @@ const server = fastify({
 
 server.register(accountsRoutes, { prefix: '/accounts' });
 server.register(transfersRoutes, { prefix: '/transfers' });
+server.register(telegramSecurityRoutes, { prefix: '/telegram-security' });
 registerMcp(server);
 
 const start = async () => {

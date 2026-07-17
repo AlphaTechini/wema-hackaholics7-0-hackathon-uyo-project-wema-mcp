@@ -8,6 +8,7 @@ Flow
   /start  →  Introduction and capabilities  →  Conversational banking assistant
               │
               ├── 💸 Transfer      → ask account → ask amount → confirm → send
+              ├── 💰 Balance      → fetch current balance through MCP
               └── 📋 History       → fetch statement through MCP
 
 Free-text at any time falls through to NEAR AI with Gemini failover.
@@ -40,7 +41,9 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     ConversationHandler,
+    ApplicationHandlerStop,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 from mcp_client import McpClient
@@ -63,7 +66,6 @@ NEAR_AI_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 AI_TIMEOUT_SECONDS: float = float(os.getenv("AI_TIMEOUT_SECONDS", "15"))
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
-DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
 
 # Gemini handles transcription natively via the same OpenAI-compat endpoint.
 TRANSCRIPTION_MODEL: str = os.getenv("TRANSCRIPTION_MODEL", "gemini-2.5-flash-lite")
@@ -106,7 +108,9 @@ GUARDIAN_ALERT_CHAT_ID: str = os.getenv("GUARDIAN_ALERT_CHAT_ID", "")   # set in
     STATE_CONFIRM_PIN,   # waiting for re-entry of PIN to authorise a debit
     STATE_ACCOUNT_DETAILS, # waiting for full name and email
     STATE_ACCOUNT_PIN,     # waiting for the new account PIN
-) = range(12)
+    STATE_SWITCH_ACCOUNT,  # waiting for an existing account number
+    STATE_SWITCH_PIN,      # waiting for the existing account PIN
+) = range(14)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -175,6 +179,7 @@ SYSTEM_PROMPT = (
     "  • Format all money amounts with the ₦ symbol and commas, e.g. ₦150,000.00.\n"
     "  • Keep replies concise and friendly.\n"
     "  • Use the provided tools whenever you need live banking data.\n"
+    "  • Use get_balance for balance requests; the bot binds account arguments to the active session.\n"
     "  • After completing a transaction always quote the reference number in monospace.\n\n"
 
     "ACCOUNT CREATION:\n"
@@ -192,10 +197,42 @@ SYSTEM_PROMPT = (
 
 MCP_CLIENT = McpClient(MCP_URL)
 _conversation_history: dict[str, list[dict[str, str]]] = {}
+_banned_user_ids: set[str] = set()
 
 
 async def mcp_call(tool_name: str, params: dict, user_id: str = "") -> dict:
     return await MCP_CLIENT.call_tool(tool_name, params)
+
+
+def _bound_account_number(context: ContextTypes.DEFAULT_TYPE | None) -> int | None:
+    if context is None:
+        return None
+    raw_account = context.user_data.get("account_id")
+    try:
+        account_number = int(raw_account)
+    except (TypeError, ValueError):
+        return None
+    return account_number if account_number > 0 else None
+
+
+def _bind_tool_account(
+    tool_name: str,
+    params: dict,
+    context: ContextTypes.DEFAULT_TYPE | None,
+) -> dict:
+    if tool_name not in {"get_balance", "get_statement", "update_account", "create_transfer"}:
+        return params
+
+    account_number = _bound_account_number(context)
+    if account_number is None:
+        raise ValueError("No account is linked to this Telegram session. Create an account first.")
+
+    bound_params = dict(params)
+    if tool_name == "create_transfer":
+        bound_params["sender_acc"] = account_number
+    else:
+        bound_params["account_number"] = account_number
+    return bound_params
 
 
 async def mcp_get_history(user_id: str) -> list[dict]:
@@ -213,6 +250,43 @@ async def mcp_save_history(user_id: str, user_message: str, assistant_reply: str
 
 async def mcp_clear_history(user_id: str) -> None:
     _conversation_history.pop(user_id, None)
+
+
+def _mcp_error_payload(error: Exception) -> dict:
+    try:
+        payload = json.loads(str(error))
+    except json.JSONDecodeError:
+        return {"error": str(error)}
+    return payload if isinstance(payload, dict) else {"error": str(error)}
+
+
+async def enforce_user_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user is None:
+        return
+
+    user_id = str(user.id)
+    if user_id in _banned_user_ids:
+        raise ApplicationHandlerStop
+
+    try:
+        result = await mcp_call("check_telegram_ban", {"telegram_user_id": user_id})
+    except Exception:
+        logger.exception("Could not check Telegram ban status")
+        message = update.effective_message
+        if message:
+            await message.reply_text("⚠️ Security verification is temporarily unavailable. Please try again.")
+        raise ApplicationHandlerStop
+
+    if result.get("data", {}).get("banned"):
+        _banned_user_ids.add(user_id)
+        raise ApplicationHandlerStop
+
+
+async def _clear_account_session(context: ContextTypes.DEFAULT_TYPE, user_id: str) -> None:
+    _queue_clear(context)
+    context.user_data.clear()
+    await mcp_clear_history(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +476,7 @@ async def process_message_with_ai(
                 func_args = {}
             logger.info("Safe tool call: %s(%s)", func_name, func_args)
             try:
+                func_args = _bind_tool_account(func_name, func_args, context)
                 result = await mcp_call(func_name, func_args, user_id=user_id)
             except Exception as exc:
                 result = {"error": str(exc)}
@@ -417,6 +492,15 @@ async def process_message_with_ai(
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
                 args = {}
+            try:
+                args = _bind_tool_account(tc.function.name, args, context)
+            except ValueError as exc:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"error": str(exc)}),
+                })
+                continue
             args.pop("pin", None)
             logger.info("Debit tool queued (PIN required): %s(%s)", tc.function.name, args)
             # Add a synthetic tool result so the message array stays valid
@@ -543,7 +627,10 @@ async def transcribe_voice(file_bytes: bytes, mime_type: str = "audio/ogg") -> s
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
+            InlineKeyboardButton("💰 Balance",  callback_data="menu:balance"),
             InlineKeyboardButton("💸 Transfer", callback_data="menu:transfer"),
+        ],
+        [
             InlineKeyboardButton("📋 History",  callback_data="menu:history"),
         ],
         [
@@ -637,6 +724,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"Hello, *{user.first_name or 'there'}*! 👋\n\n"
         "I can help you:\n"
         "- Create a new account\n"
+        "- Switch to an existing account\n"
+        "- Check your current balance\n"
         "- Update account details\n"
         "- View a transaction statement\n"
         "- Prepare and confirm a transfer\n\n"
@@ -756,9 +845,127 @@ async def handle_account_pin(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     account = result.get("data", {})
     account_number = account.get("acc_no", "your new account")
+    if isinstance(account_number, int) and account_number > 0:
+        context.user_data["account_id"] = str(account_number)
     await update.effective_chat.send_message(
         f"✅ *Account created successfully!*\n\nYour account number is `{account_number}`.",
         parse_mode="Markdown",
+    )
+    return STATE_MENU
+
+
+async def start_account_switch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start native verification for an existing account."""
+    if update.effective_chat.type != "private":
+        await update.effective_message.reply_text(
+            "For your privacy, please open a private chat with me to use an account."
+        )
+        return STATE_MENU
+
+    _queue_clear(context)
+    context.user_data.pop("pending", None)
+    context.user_data.pop("account_draft", None)
+    context.user_data.pop("switch_account_number", None)
+    text = update.effective_message.text or ""
+    account_match = re.search(r"\b\d{6,12}\b", text)
+    if account_match:
+        context.user_data["switch_account_number"] = int(account_match.group(0))
+        await update.effective_message.reply_text(
+            "Please send the PIN linked to that account. I will delete the PIN message immediately."
+        )
+        return STATE_SWITCH_PIN
+
+    await update.effective_message.reply_text(
+        "Send the numeric account number you want to use."
+    )
+    return STATE_SWITCH_ACCOUNT
+
+
+async def handle_switch_account_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = (update.message.text or "").strip()
+    if text.lower() == "cancel":
+        context.user_data.pop("switch_account_number", None)
+        await update.message.reply_text("↩️ Account switch cancelled.")
+        return STATE_MENU
+
+    if not text.isdigit() or int(text) <= 0:
+        await update.message.reply_text("Please send a valid numeric account number, or type cancel.")
+        return STATE_SWITCH_ACCOUNT
+
+    context.user_data["switch_account_number"] = int(text)
+    await update.message.reply_text(
+        "Now send the PIN linked to that account. I will delete the PIN message immediately."
+    )
+    return STATE_SWITCH_PIN
+
+
+async def handle_switch_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    pin = (update.message.text or "").strip()
+    if pin.lower() == "cancel":
+        context.user_data.pop("switch_account_number", None)
+        await update.message.reply_text("↩️ Account switch cancelled.")
+        return STATE_MENU
+
+    try:
+        await update.message.delete()
+    except TelegramError as exc:
+        logger.warning("Could not delete account switch PIN message: %s", exc)
+
+    account_number = context.user_data.get("switch_account_number")
+    if not isinstance(account_number, int) or account_number <= 0:
+        await update.effective_chat.send_message(
+            "⚠️ The account switch session expired. Please start again with /switch."
+        )
+        return STATE_MENU
+
+    user_id = str(update.effective_user.id)
+    try:
+        result = await mcp_call(
+            "verify_account_pin",
+            {
+                "account_number": account_number,
+                "telegram_user_id": user_id,
+                "pin": pin,
+            },
+            user_id=user_id,
+        )
+    except McpToolError as exc:
+        error = _mcp_error_payload(exc)
+        if error.get("status") == 403 or error.get("error") == "User is banned":
+            context.user_data.pop("switch_account_number", None)
+            _banned_user_ids.add(user_id)
+            await _clear_account_session(context, user_id)
+            await update.effective_chat.send_message(
+                "🚫 Verification failed three times. This Telegram user is now banned from the bot."
+            )
+            return ConversationHandler.END
+
+        attempts_remaining = error.get("attempts_remaining")
+        if isinstance(attempts_remaining, int):
+            await update.effective_chat.send_message(
+                f"❌ Verification failed. You have {attempts_remaining} attempt(s) remaining."
+            )
+        else:
+            await update.effective_chat.send_message("❌ Account verification failed. Please try again.")
+        return STATE_SWITCH_PIN
+    except Exception:
+        logger.exception("Account switch verification failed")
+        await update.effective_chat.send_message(
+            "⚠️ Account verification is temporarily unavailable. Please try again."
+        )
+        return STATE_SWITCH_PIN
+
+    verified_account = result.get("data", {})
+    await _clear_account_session(context, user_id)
+    context.user_data["name"] = (
+        f"{verified_account.get('first_name', 'Customer')} "
+        f"{verified_account.get('last_name', '')}"
+    ).strip()
+    context.user_data["account_id"] = str(verified_account.get("account_number", account_number))
+    await update.effective_chat.send_message(
+        f"✅ *Account verified.* You are now using account `{context.user_data['account_id']}`.",
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
     )
     return STATE_MENU
 
@@ -770,8 +977,8 @@ async def show_main_menu(
 ) -> int:
     """Display (or refresh) the main menu."""
     name = context.user_data.get("name", "Customer")
-    account_id = context.user_data.get("account_id", DEFAULT_ACCOUNT_ID)
-    text = welcome_text(name, account_id)
+    account_id = context.user_data.get("account_id", "Not linked")
+    text = welcome_text(name, str(account_id))
 
     if edit and update.callback_query:
         await update.callback_query.edit_message_text(
@@ -797,6 +1004,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if data == "menu:transfer":
         return await start_transfer(update, context)
+    if data == "menu:balance":
+        return await show_balance(update, context)
     if data == "menu:history":
         return await show_history(update, context)
     if data == "menu:logout":
@@ -812,10 +1021,29 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.edit_message_text(
-        "Balance lookup is not exposed by the current Wema MCP API.",
-        reply_markup=back_keyboard(),
-    )
+    account_number = _bound_account_number(context)
+    if account_number is None:
+        await query.edit_message_text(
+            "No account is linked to this session. Create an account first.",
+            reply_markup=back_keyboard(),
+        )
+        return STATE_MENU
+
+    await query.edit_message_text("⏳ Loading balance…")
+    try:
+        result = await mcp_call("get_balance", {"account_number": account_number})
+        balance = result.get("data", {}).get("acc_balance", 0)
+        text = (
+            "💰 *Available Balance*\n"
+            "━━━━━━━━━━━━━━━━\n"
+            f"Account: `{account_number}`\n"
+            f"Balance: *{fmt_amount(float(balance))}*"
+        )
+    except Exception:
+        logger.exception("Balance lookup failed")
+        text = "⚠️ Could not fetch your balance right now. Please try again."
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=back_keyboard())
     return STATE_MENU
 
 
@@ -825,7 +1053,13 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    account_id = context.user_data.get("account_id", DEFAULT_ACCOUNT_ID)
+    account_id = _bound_account_number(context)
+    if account_id is None:
+        await query.edit_message_text(
+            "No account is linked to this session. Create an account first.",
+            reply_markup=back_keyboard(),
+        )
+        return STATE_MENU
 
     await query.edit_message_text("⏳ Loading transactions…")
     try:
@@ -862,6 +1096,12 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def start_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
+    if _bound_account_number(context) is None:
+        await query.edit_message_text(
+            "No account is linked to this session. Create an account first.",
+            reply_markup=back_keyboard(),
+        )
+        return STATE_MENU
     await query.edit_message_text(
         "💸 *Transfer Money*\n━━━━━━━━━━━━━━━━\n\n"
         "Enter the *recipient's numeric account number*:\n"
@@ -919,7 +1159,10 @@ async def transfer_got_note(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         note = ""
     context.user_data["transfer_note"] = note
 
-    account_id = context.user_data.get("account_id", DEFAULT_ACCOUNT_ID)
+    account_id = _bound_account_number(context)
+    if account_id is None:
+        await update.message.reply_text("No account is linked to this session. Create an account first.")
+        return STATE_MENU
     recipient = context.user_data["transfer_to"]
     recipient_name = context.user_data.get("transfer_to_name", recipient)
     amount = context.user_data["transfer_amount"]
@@ -1055,7 +1298,7 @@ async def _request_topup_pin(
 ) -> int:
     """Build topup params and forward to the shared PIN confirmation gate."""
     params: dict = {
-        "account_id":   context.user_data.get("account_id", DEFAULT_ACCOUNT_ID),
+        "account_id": _bound_account_number(context),
         "phone_number": context.user_data.get("topup_phone", ""),
         "network":      context.user_data.get("topup_network", ""),
         "topup_type":   context.user_data.get("topup_type", "airtime"),
@@ -1302,7 +1545,7 @@ async def _dispatch_pending_action(
         await _send_guardian_alert(
             update.get_bot(),
             user_id=user_id,
-            account_id=context.user_data.get("account_id", DEFAULT_ACCOUNT_ID),
+            account_id=_bound_account_number(context) or "unlinked",
             action=f"{tool.upper()} (BLOCKED — guardian mode)",
             details=params,
         )
@@ -1482,6 +1725,24 @@ async def ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     logger.info("AI fallback [%s]: %s", user_id, user_text)
 
     normalized_text = user_text.lower()
+    account_switch_request = any(
+        phrase in normalized_text
+        for phrase in (
+            "switch account",
+            "switch to account",
+            "change account",
+            "change to account",
+            "use another account",
+            "use a different account",
+            "use account",
+            "log into my account",
+            "login to my account",
+            "i already have an account",
+        )
+    )
+    if account_switch_request:
+        return await start_account_switch(update, context)
+
     account_request = any(
         phrase in normalized_text
         for phrase in (
@@ -1587,6 +1848,12 @@ def main() -> None:
             STATE_ACCOUNT_PIN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_account_pin),
             ],
+            STATE_SWITCH_ACCOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_switch_account_number),
+            ],
+            STATE_SWITCH_PIN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_switch_pin),
+            ],
 
             # ── Main menu (idle) ───────────────────────────────────────────
             STATE_MENU: [
@@ -1636,11 +1903,13 @@ def main() -> None:
         },
         fallbacks=[
             CommandHandler("start", cmd_start),
+            CommandHandler("switch", start_account_switch),
             MessageHandler(filters.TEXT & ~filters.COMMAND, ai_fallback),
         ],
         allow_reentry=True,
     )
 
+    app.add_handler(TypeHandler(Update, enforce_user_ban), group=-1)
     app.add_handler(conv)
 
     logger.info(

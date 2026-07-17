@@ -13,6 +13,13 @@ export const Users = pgTable('users', {
   updated_at: timestamp({ mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
 });
 
+export const TelegramSecurity = pgTable('telegram_security', {
+  telegram_user_id: varchar({ length: 64 }).primaryKey(),
+  failed_switch_attempts: integer().notNull().default(0),
+  banned_at: timestamp({ mode: 'date' }),
+  updated_at: timestamp({ mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+});
+
 export const Transfers = pgTable('transactions', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   sender_acc: integer().references(() => Users.acc_no).notNull(),

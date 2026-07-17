@@ -349,7 +349,6 @@ Do not log or store raw PIN values (real or distress).
 | `STT_FALLBACK_MODEL` | No | — | Fallback STT model |
 | `MCP_URL` | Yes | — | MCP server base URL |
 | `BANKING_API_URL` | Yes | — | Banking API base URL (for direct reads) |
-| `DEFAULT_ACCOUNT_ID` | Yes | — | Demo account ID |
 | `DEMO_PIN` | Yes | — | Real 4-digit login PIN |
 | `DISTRESS_PIN` | Yes | — | Distress PIN (do not use 0000 in production) |
 | `GUARDIAN_ALERT_CHAT_ID` | Yes | — | Telegram chat ID for silent guardian alerts |

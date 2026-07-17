@@ -192,7 +192,7 @@ Legacy endpoints for bot backward-compatibility: `GET /accounts/{id}/balance`,
 
 ## 4. tools.json — OpenAI adapter catalogue
 
-The four Wema MCP tool schemas live in `tools.json` in OpenAI function-call format.
+The Wema MCP tool schemas live in `tools.json` in OpenAI function-call format.
 The bot loads this file at startup and forwards tool calls through `mcp_client.py`.
 
 ```
@@ -666,7 +666,7 @@ Demo credentials:
 
 | Field | Value |
 |---|---|
-| Account ID | Set `DEFAULT_ACCOUNT_ID` to a numeric Wema account |
+| Account ID | Bound to the account created in the current Telegram session |
 | Real PIN | `1234` |
 | Distress PIN | `0000` |
 | Balance | ₦150,000.00 |
@@ -680,7 +680,7 @@ Demo credentials:
 tgbot/
 ├── bot.py                Telegram bot — UI, AI, voice, security gates
 ├── mcp_client.py         Official MCP Streamable HTTP client
-├── tools.json            OpenAI-compatible catalogue for the four Wema tools
+├── tools.json            OpenAI-compatible catalogue for the Wema tools
 ├── requirements.txt      Python dependencies
 ├── .env                  Secrets (not committed)
 ├── ARCHITECTURE.md       This document

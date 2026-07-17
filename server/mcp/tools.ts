@@ -5,6 +5,7 @@ import { callApi } from './apiAdapter.js';
 
 const accountNumber = z.number().int().positive().describe('The numeric account number.');
 const pin = z.string().min(4).max(20).describe('The account PIN. Never include it in a user-facing response.');
+const verificationPin = z.string().min(1).max(100).describe('A PIN candidate for native account verification. Never include it in a user-facing response.');
 
 export function createMcpServer(app: FastifyInstance, instructions: string): McpServer {
   const server = new McpServer({
@@ -58,6 +59,57 @@ export function createMcpServer(app: FastifyInstance, instructions: string): Mcp
         ...(email === undefined ? {} : { email }),
         ...(phone_no === undefined ? {} : { phone_no }),
       },
+    }),
+  );
+
+  server.registerTool(
+    'check_telegram_ban',
+    {
+      title: 'Check Telegram security status',
+      description: 'Check whether a Telegram user is banned before processing bot updates.',
+      inputSchema: {
+        telegram_user_id: z.string().min(1).max(64),
+      },
+    },
+    async ({ telegram_user_id }) => callApi(app, {
+      method: 'GET',
+      url: `/telegram-security/${encodeURIComponent(telegram_user_id)}/status`,
+    }),
+  );
+
+  server.registerTool(
+    'verify_account_pin',
+    {
+      title: 'Verify account PIN',
+      description: 'Verify a Telegram user\'s PIN for an account switch. Use only from the secure native bot flow.',
+      inputSchema: {
+        account_number: accountNumber,
+        telegram_user_id: z.string().min(1).max(64),
+        pin: verificationPin,
+      },
+    },
+    async ({ account_number, telegram_user_id, pin: accountPin }) => callApi(app, {
+      method: 'POST',
+      url: `/accounts/${account_number}/verify-pin`,
+      payload: {
+        telegram_user_id,
+        pin: accountPin,
+      },
+    }),
+  );
+
+  server.registerTool(
+    'get_balance',
+    {
+      title: 'Get account balance',
+      description: 'Retrieve the current balance for the user\'s bound account.',
+      inputSchema: {
+        account_number: accountNumber,
+      },
+    },
+    async ({ account_number }) => callApi(app, {
+      method: 'GET',
+      url: `/accounts/${account_number}/balance`,
     }),
   );
 

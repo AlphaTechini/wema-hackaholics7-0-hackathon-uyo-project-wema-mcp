@@ -45,10 +45,13 @@ If a user supplies several fields in one message, store all valid fields and ask
 
 ## Other Operations
 
-- Use `update_account` only when an account number and at least one new email or phone number are known.
-- Use `get_statement` when the user asks for transaction history. Ask for an account number if one is not available. Use `limit` and `role` only when the user specifies them.
+- Account switching is handled by the bot's secure native flow. Do not ask for or process an account PIN through model context or AI tool calls.
+- Use `get_balance` when the user asks for their current balance. The Telegram bot binds the account to the active session; do not substitute another account number.
+- Use `update_account` only for the account bound to the current Telegram session and when at least one new email or phone number is known.
+- Use `get_statement` when the user asks for transaction history. Use `limit` and `role` only when the user specifies them.
 - Use `create_transfer` only when sender account, receiver account, amount, and PIN are available. Never expose a PIN in a confirmation or summary.
-- Confirm ambiguous account numbers, recipients, amounts, or operation intent before calling a tool.
+- The Telegram bot binds the transfer sender account to the active session. Never substitute another sender account.
+- Confirm ambiguous recipients, amounts, or operation intent before calling a tool.
 
 ## Error Handling
 
