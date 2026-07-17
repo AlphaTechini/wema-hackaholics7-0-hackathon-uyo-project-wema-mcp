@@ -2,7 +2,7 @@
 
 > Status: Proof-of-concept / testing phase
 > Last updated: 2026-07-14
-> Stack: Python 3.9+, python-telegram-bot 20, FastAPI, OpenRouter AI
+> Stack: Python 3.9+, python-telegram-bot 21, FastAPI, Groq primary with Gemini fallback
 
 ---
 
@@ -35,14 +35,14 @@ Telegram User
 ┌──────────────────────────────────────────────┐
 │                   bot.py                     │
 │                                              │
-│  ConversationHandler (11 states)             │
-│  ├── PIN login (real + distress)             │
+│  ConversationHandler (10 states)             │
+│  ├── Conversational onboarding               │
 │  ├── Main menu (inline keyboard)             │
 │  ├── Transfer flow (3 steps)                 │
 │  ├── Airtime/Data flow (4-5 steps)           │
 │  └── PIN confirmation gate (all debits)      │
 │                                              │
-│  AI engine (OpenRouter / OpenAI SDK)         │
+│  AI engine (Groq SDK / Gemini OpenAI SDK)    │
 │  ├── Load history  ──────────────────────────│──► GET  /context/{user_id}
 │  ├── Intercept debits → PIN gate             │
 │  ├── Call safe tools  ───────────────────────│──► POST /call  {user_id}
@@ -88,7 +88,7 @@ Telegram User
 **Responsibilities**
 - Receive Telegram updates (text, voice, inline button callbacks).
 - Drive the interactive multi-step UI via `ConversationHandler`.
-- Transcribe voice notes (Voxtral → Gemini fallback via OpenRouter).
+- Transcribe voice notes through Gemini's OpenAI-compatible endpoint.
 - Run the AI reasoning loop with tool calling.
 - Intercept AI-requested debit actions and route them through the PIN gate.
 - Register and revoke account ownership with MCP on login/logout.
@@ -198,7 +198,7 @@ The bot loads this file at startup and forwards tool calls through `mcp_client.p
 ```
 tools.json
     │
-    └──► bot.py         TOOLS list — passed directly to OpenRouter
+    └──► bot.py         TOOLS list — passed to Groq, then Gemini on failure
                          mcp_client.py → official tools/call
 ```
 

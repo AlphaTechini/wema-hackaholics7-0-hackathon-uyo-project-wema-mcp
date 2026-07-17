@@ -1,7 +1,7 @@
 """
 bot.py
 ------
-Telegram banking bot backed by the Wema MCP API + OpenRouter AI.
+Telegram banking bot backed by the Wema MCP API + Groq/Gemini AI.
 
 Flow
 ----
@@ -10,7 +10,7 @@ Flow
               ├── 💸 Transfer      → ask account → ask amount → confirm → send
               └── 📋 History       → fetch statement through MCP
 
-Free-text at any time falls through to the OpenRouter AI assistant.
+Free-text at any time falls through to the Groq assistant with Gemini failover.
 Voice messages are transcribed then handled the same way.
 """
 
@@ -21,11 +21,12 @@ import json
 import logging
 import os
 import tempfile
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
+from groq import Groq
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -53,10 +54,11 @@ load_dotenv(f".env.{_env}", override=True)
 # ---------------------------------------------------------------------------
 
 TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-# Primary: gemini-2.5-flash-lite — highest free-tier RPM, full tool-call support.
-# Fallback: gemini-2.5-flash — stronger reasoning, still free.
-MODEL: str = os.getenv("MODEL", "gemini-2.5-flash-lite")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
+GROQ_REASONING_EFFORT: str = os.getenv("GROQ_REASONING_EFFORT", "none")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
 PORT: int = int(os.getenv("PORT", "8080"))
@@ -67,12 +69,6 @@ WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 # Gemini handles transcription natively via the same OpenAI-compat endpoint.
 TRANSCRIPTION_MODEL: str = os.getenv("TRANSCRIPTION_MODEL", "gemini-2.5-flash-lite")
 TRANSCRIPTION_FALLBACK: str = "gemini-2.5-flash"
-
-FALLBACK_MODELS: list[str] = [
-    MODEL,
-    "gemini-2.5-flash",         # stronger, still free-tier
-    "gemini-2.5-flash-lite",    # re-try lite after flash if something goes sideways
-]
 
 # ---------------------------------------------------------------------------
 # Silent Guardian Mode
@@ -118,15 +114,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Gemini client (OpenAI-compatible endpoint)
+# AI provider clients
 # ---------------------------------------------------------------------------
 
-client = OpenAI(
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key=GEMINI_API_KEY,
-    max_retries=0,
-    timeout=30.0,
+groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=30.0) if GROQ_API_KEY else None
+gemini_client = (
+    OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=GEMINI_API_KEY,
+        max_retries=0,
+        timeout=30.0,
+    )
+    if GEMINI_API_KEY
+    else None
 )
+
+AI_PROVIDERS: dict[str, tuple[Any, str]] = {
+    "groq": (groq_client, GROQ_MODEL),
+    "gemini": (gemini_client, GEMINI_MODEL),
+}
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -258,19 +264,53 @@ async def _send_guardian_alert(
 # AI engine
 # ---------------------------------------------------------------------------
 
-def _is_rate_limited(exc: Exception) -> bool:
-    from openai import RateLimitError
-    return isinstance(exc, RateLimitError)
-
-
-def _chat(model: str, messages: list[dict], **kwargs):
-    return client.chat.completions.create(
+def _chat(provider: str, messages: list[dict], **kwargs):
+    provider_client, model = AI_PROVIDERS[provider]
+    if provider_client is None:
+        raise RuntimeError(f"{provider} API key is not configured")
+    if provider == "groq":
+        kwargs.setdefault("reasoning_effort", GROQ_REASONING_EFFORT)
+    return provider_client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=0.3,
         max_tokens=1024,
         **kwargs,
     )
+
+
+def _provider_order(preferred_provider: str | None) -> list[str]:
+    providers = ["groq", "gemini"]
+    if preferred_provider in providers:
+        providers.remove(preferred_provider)
+        providers.insert(0, preferred_provider)
+    return providers
+
+
+def _chat_with_failover(
+    messages: list[dict],
+    preferred_provider: str | None,
+    failed_providers: set[str],
+    **kwargs,
+) -> tuple[Any, str]:
+    last_error: Exception | None = None
+    for provider in _provider_order(preferred_provider):
+        if provider in failed_providers:
+            continue
+        try:
+            response = _chat(provider, messages, **kwargs)
+            return response, provider
+        except Exception as exc:
+            failed_providers.add(provider)
+            last_error = exc
+            logger.exception("AI provider %s failed; trying fallback", provider)
+    raise RuntimeError("All AI providers failed") from last_error
+
+
+def _message_payload(message: Any) -> dict:
+    if hasattr(message, "model_dump"):
+        return message.model_dump(exclude_none=True)
+    return message if isinstance(message, dict) else dict(message)
 
 
 async def process_message_with_ai(
@@ -303,31 +343,19 @@ async def process_message_with_ai(
         {"role": "user", "content": user_message},
     ]
 
-    # Pick a non-rate-limited model
-    tried: set[str] = set()
-    chosen_model: Optional[str] = None
-
-    for candidate in FALLBACK_MODELS:
-        if candidate in tried:
-            continue
-        tried.add(candidate)
-        try:
-            # Probe call to select a live model
-            probe = _chat(candidate, messages, tools=TOOLS, tool_choice="auto")
-            chosen_model = candidate
-            logger.info("Using model: %s", chosen_model)
-            # Reuse the probe as the first response
-            current_response = probe
-            break
-        except Exception as exc:
-            if _is_rate_limited(exc):
-                logger.warning("Model %s rate-limited, trying next.", candidate)
-                continue
-            logger.exception("OpenRouter error with model %s", candidate)
-            return f"⚠️ AI error: {exc}"
-
-    if chosen_model is None:
-        return "⚠️ All AI models are currently rate-limited. Please try again in a minute."
+    failed_providers: set[str] = set()
+    try:
+        current_response, chosen_provider = _chat_with_failover(
+            messages,
+            preferred_provider=None,
+            failed_providers=failed_providers,
+            tools=TOOLS,
+            tool_choice="auto",
+        )
+    except Exception:
+        logger.exception("All AI providers failed on the initial request")
+        return "⚠️ The AI service is temporarily unavailable. Please try again shortly."
+    logger.info("Using AI provider: %s", chosen_provider)
 
     # ── Multi-turn tool loop ───────────────────────────────────────────────
     # Cap at 6 iterations to prevent infinite loops on misbehaving models
@@ -358,19 +386,21 @@ async def process_message_with_ai(
                     ),
                 })
                 try:
-                    current_response = _chat(
-                        chosen_model, messages, tools=TOOLS, tool_choice="required"
+                    current_response, chosen_provider = _chat_with_failover(
+                        messages,
+                        preferred_provider=chosen_provider,
+                        failed_providers=failed_providers,
+                        tools=TOOLS,
+                        tool_choice="required",
                     )
-                except Exception as exc:
-                    if _is_rate_limited(exc):
-                        return "⚠️ Rate limit hit mid-conversation. Please try again shortly."
-                    logger.exception("OpenRouter recovery call failed")
-                    return f"⚠️ AI error: {exc}"
+                except Exception:
+                    logger.exception("All AI providers failed during tool recovery")
+                    return "⚠️ The AI service is temporarily unavailable. Please try again shortly."
                 continue   # re-enter loop with the forced response
             answer = (assistant_msg.content or "").strip()
             break
 
-        messages.append(assistant_msg)
+        messages.append(_message_payload(assistant_msg))
 
         # Separate debit from safe tool calls
         safe_tool_calls  = [tc for tc in assistant_msg.tool_calls
@@ -432,14 +462,16 @@ async def process_message_with_ai(
             else "auto"
         )
         try:
-            current_response = _chat(
-                chosen_model, messages, tools=TOOLS, tool_choice=_follow_up_tool_choice
+            current_response, chosen_provider = _chat_with_failover(
+                messages,
+                preferred_provider=chosen_provider,
+                failed_providers=failed_providers,
+                tools=TOOLS,
+                tool_choice=_follow_up_tool_choice,
             )
-        except Exception as exc:
-            if _is_rate_limited(exc):
-                return "⚠️ Rate limit hit mid-conversation. Please try again shortly."
-            logger.exception("OpenRouter follow-up call failed")
-            return f"⚠️ AI error: {exc}"
+        except Exception:
+            logger.exception("All AI providers failed during tool follow-up")
+            return "⚠️ The AI service is temporarily unavailable. Please try again shortly."
 
     else:
         # Loop cap hit — shouldn't happen in normal usage
@@ -492,6 +524,9 @@ async def process_message_with_ai(
 # ---------------------------------------------------------------------------
 
 async def transcribe_voice(file_bytes: bytes, mime_type: str = "audio/ogg") -> str:
+    if gemini_client is None:
+        raise RuntimeError("Voice transcription is not configured.")
+
     audio_b64 = base64.b64encode(file_bytes).decode("utf-8")
     fmt = mime_type.split("/")[-1].split(";")[0].strip() or "ogg"
     messages = [
@@ -505,19 +540,16 @@ async def transcribe_voice(file_bytes: bytes, mime_type: str = "audio/ogg") -> s
     ]
     for model in (TRANSCRIPTION_MODEL, TRANSCRIPTION_FALLBACK):
         try:
-            resp = client.chat.completions.create(
+            resp = gemini_client.chat.completions.create(
                 model=model, messages=messages, temperature=0.0, max_tokens=512
             )
             text = (resp.choices[0].message.content or "").strip()
             logger.info("Transcription via %s: %s", model, text[:120])
             return text
-        except Exception as exc:
-            if _is_rate_limited(exc):
-                logger.warning("Transcription model %s rate-limited, trying fallback.", model)
-                continue
+        except Exception:
             logger.exception("Transcription error with %s", model)
-            raise
-    raise RuntimeError("All transcription models are rate-limited. Please try again shortly.")
+            continue
+    raise RuntimeError("Voice transcription is temporarily unavailable.")
 
 # ---------------------------------------------------------------------------
 # UI helpers — keyboards & screen builders
@@ -1412,6 +1444,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 def main() -> None:
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY is not set")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set")
     if not WEBHOOK_BASE_URL:
@@ -1482,7 +1516,14 @@ def main() -> None:
     app.add_handler(conv)
 
     webhook_url = f"{WEBHOOK_BASE_URL}/{WEBHOOK_PATH}"
-    logger.info("Bot starting — model: %s  MCP: %s  webhook: %s", MODEL, MCP_URL, webhook_url)
+    logger.info(
+        "Bot starting — primary: %s/%s  fallback: gemini/%s  MCP: %s  webhook: %s",
+        "groq",
+        GROQ_MODEL,
+        GEMINI_MODEL,
+        MCP_URL,
+        webhook_url,
+    )
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,

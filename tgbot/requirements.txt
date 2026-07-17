@@ -2,8 +2,9 @@
 python-telegram-bot[webhooks]==21.6
 tornado==6.5.5
 
-# OpenRouter / OpenAI-compatible client
+# AI provider clients
 openai==1.40.0
+groq==1.5.0
 
 # FastAPI stack (ALAT mock API + MCP server)
 fastapi==0.111.1
