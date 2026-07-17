@@ -272,6 +272,9 @@ def _chat(provider: str, messages: list[dict], **kwargs):
     provider_client, model = AI_PROVIDERS[provider]
     if provider_client is None:
         raise RuntimeError(f"{provider} API key is not configured")
+    if provider == "near_ai":
+        kwargs.setdefault("extra_body", {})
+        kwargs["extra_body"].setdefault("chat_template_kwargs", {})["thinking"] = False
     return provider_client.chat.completions.create(
         model=model,
         messages=messages,
