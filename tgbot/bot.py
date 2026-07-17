@@ -20,6 +20,7 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Any, Optional
@@ -32,6 +33,7 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -42,6 +44,7 @@ from telegram.ext import (
     filters,
 )
 from mcp_client import McpClient
+from mcp_client import McpToolError
 
 # Load shared config, then override with environment-specific file.
 # APP_ENV defaults to "local" → .env.local; set APP_ENV=production for Docker.
@@ -101,7 +104,9 @@ GUARDIAN_ALERT_CHAT_ID: str = os.getenv("GUARDIAN_ALERT_CHAT_ID", "")   # set in
     STATE_TOPUP_AMT,     # waiting for topup amount
     STATE_TOPUP_PLAN,    # waiting for data plan (data only)
     STATE_CONFIRM_PIN,   # waiting for re-entry of PIN to authorise a debit
-) = range(10)
+    STATE_ACCOUNT_DETAILS, # waiting for full name and email
+    STATE_ACCOUNT_PIN,     # waiting for the new account PIN
+) = range(12)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -172,12 +177,8 @@ SYSTEM_PROMPT = (
     "  • Use the provided tools whenever you need live banking data.\n"
     "  • After completing a transaction always quote the reference number in monospace.\n\n"
 
-    "ACCOUNT CREATION RULES:\n"
-    "  Infer account fields from natural language and accept multiple details in one message.\n"
-    "  When asked about requirements, say that first name, last name, and email are needed; phone is optional; PIN comes last.\n"
-    "  Ask a short follow-up only when a required value is missing or ambiguous. Ask for the PIN last, by itself.\n"
-    "  Call create_account once with all fields only after the PIN is collected.\n"
-    "  Never repeat or expose a PIN.\n\n"
+    "ACCOUNT CREATION:\n"
+    "  Account opening is handled by the bot's secure native flow. Do not offer or call account-creation tools.\n\n"
 
     "TRANSFER RULES:\n"
     "  create_transfer requires sender_acc, receiver_acc, amount, and PIN.\n"
@@ -640,6 +641,123 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "- View a transaction statement\n"
         "- Prepare and confirm a transfer\n\n"
         "What would you like to do first? If you are opening a new account, start with your first and last name. I will collect only the information required for your request, and I will never ask for an account PIN before it is necessary.",
+        parse_mode="Markdown",
+    )
+    return STATE_MENU
+
+
+async def start_account_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start native account creation without involving the language model."""
+    if update.effective_chat.type != "private":
+        await update.message.reply_text(
+            "For your privacy, please open a private chat with me to create an account."
+        )
+        return STATE_MENU
+
+    context.user_data.pop("account_draft", None)
+    await update.message.reply_text(
+        "To open an account, send your *first name*, *last name*, and *email address* in one message. "
+        "A phone number is optional and is not required to continue.",
+        parse_mode="Markdown",
+    )
+    return STATE_ACCOUNT_DETAILS
+
+
+async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store the non-sensitive account details needed before requesting a PIN."""
+    text = (update.message.text or "").strip()
+    if text.lower() == "cancel":
+        context.user_data.pop("account_draft", None)
+        await update.message.reply_text("↩️ Account creation cancelled.")
+        return STATE_MENU
+
+    email_match = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", text)
+    name_text = text.replace(email_match.group(0), " ") if email_match else text
+    name_parts = re.findall(r"[A-Za-z][A-Za-z'-]*", name_text)
+
+    if not email_match or len(name_parts) < 2:
+        await update.message.reply_text(
+            "Please send your *first name*, *last name*, and *email address* together.\n"
+            "Example: `Ada Okafor ada@example.com`",
+            parse_mode="Markdown",
+        )
+        return STATE_ACCOUNT_DETAILS
+
+    first_name = name_parts[0]
+    last_name = " ".join(name_parts[1:])
+    if len(first_name) > 20 or len(last_name) > 20 or len(email_match.group(0)) > 55:
+        await update.message.reply_text(
+            "Please use a first name and last name of up to 20 characters, and an email address of up to 55 characters."
+        )
+        return STATE_ACCOUNT_DETAILS
+
+    context.user_data["account_draft"] = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email_match.group(0).lower(),
+    }
+    await update.message.reply_text(
+        "Thanks. Now send a new *4 to 20 digit PIN*. For your privacy, I will delete that message immediately after receiving it.",
+        parse_mode="Markdown",
+    )
+    return STATE_ACCOUNT_PIN
+
+
+async def handle_account_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Delete the PIN message, create the account once, and discard the PIN."""
+    pin = (update.message.text or "").strip()
+    if pin.lower() == "cancel":
+        context.user_data.pop("account_draft", None)
+        await update.message.reply_text("↩️ Account creation cancelled.")
+        return STATE_MENU
+
+    try:
+        await update.message.delete()
+    except TelegramError as exc:
+        logger.warning("Could not delete account PIN message: %s", exc)
+
+    if not pin.isdigit() or not 4 <= len(pin) <= 20:
+        await update.effective_chat.send_message(
+            "❌ PIN must contain 4 to 20 digits. Please send a new PIN."
+        )
+        return STATE_ACCOUNT_PIN
+
+    draft = context.user_data.pop("account_draft", None)
+    if not draft:
+        await update.effective_chat.send_message(
+            "⚠️ Your account details are no longer available. Please start account creation again."
+        )
+        return STATE_MENU
+
+    payload = {**draft, "pin": pin}
+    try:
+        result = await mcp_call("create_account", payload, user_id=str(update.effective_user.id))
+    except McpToolError as exc:
+        payload.pop("pin", None)
+        if "Email already exists" in str(exc):
+            context.user_data["account_draft"] = draft
+            await update.effective_chat.send_message(
+                "❌ That email is already registered. Send your full name and a different email address to continue."
+            )
+            return STATE_ACCOUNT_DETAILS
+        await update.effective_chat.send_message(
+            "⚠️ I could not create your account. Please start again and use a new PIN."
+        )
+        return STATE_MENU
+    except Exception:
+        logger.exception("Account creation request failed")
+        await update.effective_chat.send_message(
+            "⚠️ I could not create your account. Please start again and use a new PIN."
+        )
+        return STATE_MENU
+    finally:
+        payload.pop("pin", None)
+        pin = ""
+
+    account = result.get("data", {})
+    account_number = account.get("acc_no", "your new account")
+    await update.effective_chat.send_message(
+        f"✅ *Account created successfully!*\n\nYour account number is `{account_number}`.",
         parse_mode="Markdown",
     )
     return STATE_MENU
@@ -1357,19 +1475,18 @@ async def ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     normalized_text = user_text.lower()
     account_request = any(
         phrase in normalized_text
-        for phrase in ("open an account", "create an account", "account creation", "new account")
-    )
-    asks_for_requirements = any(
-        phrase in normalized_text
-        for phrase in ("what do you need", "what do i need", "requirements", "what is required")
-    )
-    if account_request and asks_for_requirements:
-        await update.message.reply_text(
-            "To open an account, send your *first name*, *last name*, and *email address*. "
-            "A phone number is optional. I will ask you to create a PIN only after I have those details.",
-            parse_mode="Markdown",
+        for phrase in (
+            "open an account",
+            "open account",
+            "create an account",
+            "create account",
+            "account creation",
+            "new account",
+            "register an account",
         )
-        return STATE_MENU
+    )
+    if account_request:
+        return await start_account_creation(update, context)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing = await update.message.reply_text("⏳ Thinking…")
@@ -1454,6 +1571,14 @@ def main() -> None:
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
+            # ── Account creation ───────────────────────────────────────────
+            STATE_ACCOUNT_DETAILS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_account_details),
+            ],
+            STATE_ACCOUNT_PIN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_account_pin),
+            ],
+
             # ── Main menu (idle) ───────────────────────────────────────────
             STATE_MENU: [
                 CallbackQueryHandler(menu_callback, pattern=r"^(menu:|back:)"),
