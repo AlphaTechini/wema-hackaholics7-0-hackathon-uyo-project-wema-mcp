@@ -111,7 +111,7 @@ Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` o
 ## Security Notes
 
 - PINs are hashed by the API and are not returned in account responses.
-- The Telegram bot collects transfer PINs through a confirmation gate before calling `create_transfer`.
+- The Telegram bot deletes transfer PIN messages before calling `create_transfer`; the API verifies them with Argon2 before moving funds.
 - Account-creation PINs are collected last, deleted immediately from the Telegram chat, and are not included in conversation history.
 - The current MCP endpoint has no application-level authentication. Protect the Cloud Run service with an appropriate GCP ingress or authentication policy before exposing it publicly.
 

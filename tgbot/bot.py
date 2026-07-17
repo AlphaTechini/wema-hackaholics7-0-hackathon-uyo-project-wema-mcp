@@ -1232,6 +1232,11 @@ async def handle_confirm_pin(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg, parse_mode="Markdown")
         return await show_main_menu(update, context)
 
+    try:
+        await update.message.delete()
+    except TelegramError as exc:
+        logger.warning("Could not delete transaction PIN message: %s", exc)
+
     # ── Validate transaction PIN before sending it to the API ──────────────
     is_distress = (text == DISTRESS_PIN)
     if (not text.isdigit() or len(text) < 4 or len(text) > 20) and not is_distress:
@@ -1254,7 +1259,11 @@ async def handle_confirm_pin(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_distress:
         context.user_data["guardian_mode"] = True
 
-    return await _dispatch_pending_action(update, context, pending)
+    try:
+        return await _dispatch_pending_action(update, context, pending)
+    finally:
+        pending["params"].pop("pin", None)
+        text = ""
 
 
 async def _dispatch_pending_action(

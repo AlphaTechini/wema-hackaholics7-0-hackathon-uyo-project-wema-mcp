@@ -12,7 +12,7 @@ Set these values in Cloud Run or Secret Manager:
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
 
-The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Account opening uses a native flow rather than model context: the account PIN message is deleted immediately, submitted once, and never stored in conversation history. Chat requests use NEAR AI Cloud's direct `dsv4-flash.completions.near.ai` endpoint with `deepseek-ai/DeepSeek-V4-Flash`, avoiding the gateway routing hop, and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
+The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Account opening uses a native flow rather than model context: the account PIN message is deleted immediately, submitted once, and never stored in conversation history. Transaction PIN messages use the same immediate-deletion rule and are cleared after dispatch. Chat requests use NEAR AI Cloud's direct `dsv4-flash.completions.near.ai` endpoint with `deepseek-ai/DeepSeek-V4-Flash`, avoiding the gateway routing hop, and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
 
 To find the Telegram polling startup and update handling logic visit [bot.py](bot.py).
 
