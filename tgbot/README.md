@@ -9,6 +9,7 @@ Set these values in Cloud Run or Secret Manager:
 - `GEMINI_API_KEY`: Gemini API key used by the assistant.
 - `NEAR_AI_MODEL`: primary model, defaulting to `deepseek-ai/DeepSeek-V3.1`.
 - `GEMINI_MODEL`: fallback model, defaulting to `gemini-2.5-flash-lite`.
+- `AI_TIMEOUT_SECONDS`: per-provider request timeout, defaulting to `15`.
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
 

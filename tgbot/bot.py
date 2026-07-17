@@ -57,6 +57,7 @@ NEAR_AI_API_KEY: str = os.getenv("NEAR_AI_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 NEAR_AI_MODEL: str = os.getenv("NEAR_AI_MODEL", "deepseek-ai/DeepSeek-V3.1")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+AI_TIMEOUT_SECONDS: float = float(os.getenv("AI_TIMEOUT_SECONDS", "15"))
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
 
@@ -116,7 +117,7 @@ near_ai_client = (
         base_url="https://cloud-api.near.ai/v1",
         api_key=NEAR_AI_API_KEY,
         max_retries=0,
-        timeout=30.0,
+        timeout=AI_TIMEOUT_SECONDS,
     )
     if NEAR_AI_API_KEY
     else None
@@ -126,7 +127,7 @@ gemini_client = (
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key=GEMINI_API_KEY,
         max_retries=0,
-        timeout=30.0,
+        timeout=AI_TIMEOUT_SECONDS,
     )
     if GEMINI_API_KEY
     else None
@@ -371,38 +372,8 @@ async def process_message_with_ai(
         assistant_msg = current_response.choices[0].message
         finish_reason = current_response.choices[0].finish_reason
 
-        # No tool calls on this turn.
-        # If we haven't queued any debit actions yet and this is an early iteration,
-        # the model may have skipped tool use entirely (common on free-tier models for
-        # multi-recipient requests). Inject a firm reminder and force it to use tools.
+        # A normal conversational reply is complete. Do not force a second model call.
         if not assistant_msg.tool_calls:
-            if not debit_queue and _iteration == 0:
-                # The model answered in plain text without calling any tools.
-                # Append its reply as context then demand tool calls explicitly.
-                if assistant_msg.content:
-                    messages.append({"role": "assistant", "content": assistant_msg.content})
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "You must use the available tools to complete this request. "
-                        "Do not ask clarifying questions — all the information needed "
-                        "is already in the conversation. "
-                        "If the request involves multiple recipients or phone numbers, "
-                        "call the relevant tool once per recipient in parallel, right now."
-                    ),
-                })
-                try:
-                    current_response, chosen_provider = _chat_with_failover(
-                        messages,
-                        preferred_provider=chosen_provider,
-                        failed_providers=failed_providers,
-                        tools=TOOLS,
-                        tool_choice="required",
-                    )
-                except Exception:
-                    logger.exception("All AI providers failed during tool recovery")
-                    return "⚠️ The AI service is temporarily unavailable. Please try again shortly."
-                continue   # re-enter loop with the forced response
             answer = (assistant_msg.content or "").strip()
             break
 
