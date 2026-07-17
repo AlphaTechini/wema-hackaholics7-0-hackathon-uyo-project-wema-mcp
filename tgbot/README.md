@@ -1,4 +1,4 @@
-The Telegram service receives updates through a Cloud Run webhook and forwards banking tool calls to the Wema MCP endpoint.
+The Telegram service polls Telegram and forwards banking tool calls to the Wema MCP endpoint.
 
 ## Runtime Configuration
 
@@ -12,13 +12,10 @@ Set these values in Cloud Run or Secret Manager:
 - `GEMINI_MODEL`: fallback model, defaulting to `gemini-2.5-flash-lite`.
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
-- `WEBHOOK_BASE_URL`: public Cloud Run URL for this service, without a trailing slash.
-- `TELEGRAM_WEBHOOK_PATH`: non-sensitive path segment, normally `telegram`.
-- `TELEGRAM_WEBHOOK_SECRET`: random Telegram webhook header secret.
 
-The application registers the webhook with Telegram during startup. No manual `setWebhook` request is required, and the bot token is never included in the webhook URL. Chat requests use Groq first and retry with Gemini when Groq fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
+The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use Groq first and retry with Gemini when Groq fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
 
-To find the Telegram webhook startup and update handling logic visit [bot.py](bot.py).
+To find the Telegram polling startup and update handling logic visit [bot.py](bot.py).
 
 The Telegram connection can be found in [bot.py](bot.py), and the MCP connection can be found in [mcp_client.py](mcp_client.py).
 

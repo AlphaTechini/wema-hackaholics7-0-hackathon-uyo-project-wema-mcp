@@ -636,7 +636,7 @@ API swap.
    incident-management webhook (PagerDuty, Slack, or SMS gateway).
 
 8. Deploy:
-   - `bot.py`: single instance or multiple behind a Telegram webhook balancer
+    - `bot.py`: one always-on instance using Telegram long polling
    - `mcp_server.py`: horizontally scalable once stores are in Redis
    - Real ALAT API: external, called over HTTPS from MCP
 

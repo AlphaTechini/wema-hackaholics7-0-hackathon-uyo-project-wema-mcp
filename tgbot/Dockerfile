@@ -14,5 +14,5 @@ COPY prompts/ prompts/
 ENV PORT=8080
 EXPOSE $PORT
 
-# The bot owns the HTTP listener and receives Telegram webhook requests directly.
-CMD ["python", "bot.py"]
+# Keep a listener for Cloud Run's port check while the bot polls Telegram.
+CMD python -m http.server $PORT & python bot.py

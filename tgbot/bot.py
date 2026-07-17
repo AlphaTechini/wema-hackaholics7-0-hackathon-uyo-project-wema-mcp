@@ -61,10 +61,6 @@ GROQ_REASONING_EFFORT: str = os.getenv("GROQ_REASONING_EFFORT", "none")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
-PORT: int = int(os.getenv("PORT", "8080"))
-WEBHOOK_BASE_URL: str = os.getenv("WEBHOOK_BASE_URL", "").rstrip("/")
-WEBHOOK_PATH: str = os.getenv("TELEGRAM_WEBHOOK_PATH", "telegram").strip("/")
-WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 # Gemini handles transcription natively via the same OpenAI-compat endpoint.
 TRANSCRIPTION_MODEL: str = os.getenv("TRANSCRIPTION_MODEL", "gemini-2.5-flash-lite")
@@ -1448,13 +1444,6 @@ def main() -> None:
         raise ValueError("GROQ_API_KEY is not set")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set")
-    if not WEBHOOK_BASE_URL:
-        raise ValueError("WEBHOOK_BASE_URL is not set")
-    if not WEBHOOK_PATH:
-        raise ValueError("TELEGRAM_WEBHOOK_PATH must not be empty")
-    if not WEBHOOK_SECRET:
-        raise ValueError("TELEGRAM_WEBHOOK_SECRET is not set")
-
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     conv = ConversationHandler(
@@ -1515,23 +1504,14 @@ def main() -> None:
 
     app.add_handler(conv)
 
-    webhook_url = f"{WEBHOOK_BASE_URL}/{WEBHOOK_PATH}"
     logger.info(
-        "Bot starting — primary: %s/%s  fallback: gemini/%s  MCP: %s  webhook: %s",
+        "Bot starting — polling  primary: %s/%s  fallback: gemini/%s  MCP: %s",
         "groq",
         GROQ_MODEL,
         GEMINI_MODEL,
         MCP_URL,
-        webhook_url,
     )
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=WEBHOOK_PATH,
-        webhook_url=webhook_url,
-        secret_token=WEBHOOK_SECRET,
-        allowed_updates=Update.ALL_TYPES,
-    )
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
