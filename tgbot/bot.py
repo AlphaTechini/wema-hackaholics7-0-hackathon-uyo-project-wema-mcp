@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from typing import Any, Optional
 
 import httpx
@@ -172,9 +173,9 @@ SYSTEM_PROMPT = (
     "  • After completing a transaction always quote the reference number in monospace.\n\n"
 
     "ACCOUNT CREATION RULES:\n"
-    "  Parse account fields from any order and store them in conversation context.\n"
-    "  Map the first name before the last name and detect Gmail addresses as email.\n"
-    "  Ask only for the next missing non-PIN field. Ask for the PIN last, by itself.\n"
+    "  Infer account fields from natural language and accept multiple details in one message.\n"
+    "  When asked about requirements, say that first name, last name, and email are needed; phone is optional; PIN comes last.\n"
+    "  Ask a short follow-up only when a required value is missing or ambiguous. Ask for the PIN last, by itself.\n"
     "  Call create_account once with all fields only after the PIN is collected.\n"
     "  Never repeat or expose a PIN.\n\n"
 
@@ -302,13 +303,19 @@ def _chat_with_failover(
     for provider in _provider_order(preferred_provider):
         if provider in failed_providers:
             continue
+        started_at = time.monotonic()
         try:
             response = _chat(provider, messages, **kwargs)
+            logger.info("AI provider %s completed in %.2fs", provider, time.monotonic() - started_at)
             return response, provider
         except Exception as exc:
             failed_providers.add(provider)
             last_error = exc
-            logger.exception("AI provider %s failed; trying fallback", provider)
+            logger.exception(
+                "AI provider %s failed after %.2fs; trying fallback",
+                provider,
+                time.monotonic() - started_at,
+            )
     raise RuntimeError("All AI providers failed") from last_error
 
 
@@ -1349,6 +1356,23 @@ async def ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     user_text = update.message.text or ""
     user_id = str(update.effective_user.id)
     logger.info("AI fallback [%s]: %s", user_id, user_text)
+
+    normalized_text = user_text.lower()
+    account_request = any(
+        phrase in normalized_text
+        for phrase in ("open an account", "create an account", "account creation", "new account")
+    )
+    asks_for_requirements = any(
+        phrase in normalized_text
+        for phrase in ("what do you need", "what do i need", "requirements", "what is required")
+    )
+    if account_request and asks_for_requirements:
+        await update.message.reply_text(
+            "To open an account, send your *first name*, *last name*, and *email address*. "
+            "A phone number is optional. I will ask you to create a PIN only after I have those details.",
+            parse_mode="Markdown",
+        )
+        return STATE_MENU
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing = await update.message.reply_text("⏳ Thinking…")
