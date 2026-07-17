@@ -5,7 +5,7 @@ Telegram banking bot backed by the Wema MCP API + OpenRouter AI.
 
 Flow
 ----
-  /start  →  Welcome screen  →  PIN login  →  Main Menu (inline keyboard)
+  /start  →  Introduction and capabilities  →  Conversational banking assistant
               │
               ├── 💸 Transfer      → ask account → ask amount → confirm → send
               └── 📋 History       → fetch statement through MCP
@@ -70,9 +70,6 @@ FALLBACK_MODELS: list[str] = [
     "gemini-2.5-flash-lite",    # re-try lite after flash if something goes sideways
 ]
 
-# Demo PIN (in a real app this would be per-user, hashed, stored in DB)
-DEMO_PIN = "1234"
-
 # ---------------------------------------------------------------------------
 # Silent Guardian Mode
 # ---------------------------------------------------------------------------
@@ -98,7 +95,6 @@ GUARDIAN_ALERT_CHAT_ID: str = os.getenv("GUARDIAN_ALERT_CHAT_ID", "")   # set in
 
 # Top-level states
 (
-    STATE_PIN,           # waiting for login PIN
     STATE_MENU,          # main menu shown, idle
     STATE_TRANSFER_TO,   # waiting for recipient
     STATE_TRANSFER_AMT,  # waiting for transfer amount
@@ -109,7 +105,7 @@ GUARDIAN_ALERT_CHAT_ID: str = os.getenv("GUARDIAN_ALERT_CHAT_ID", "")   # set in
     STATE_TOPUP_AMT,     # waiting for topup amount
     STATE_TOPUP_PLAN,    # waiting for data plan (data only)
     STATE_CONFIRM_PIN,   # waiting for re-entry of PIN to authorise a debit
-) = range(11)
+) = range(10)
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -606,57 +602,27 @@ def welcome_text(name: str, account_id: str) -> str:
     )
 
 # ---------------------------------------------------------------------------
-# Login flow
+# Conversation start
 # ---------------------------------------------------------------------------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point — show the bank welcome/login screen."""
+    """Introduce the assistant and begin a banking conversation."""
     user = update.effective_user
     context.user_data.clear()
+    context.user_data["name"] = user.first_name or "there"
 
     await update.message.reply_text(
         f"🏦 *Welcome to ALAT by Wema*\n\n"
-        f"Hello, *{user.first_name}*! 👋\n\n"
-        f"Please enter your *4-digit PIN* to continue:\n"
-        f"_(Demo PIN: `1234`)_",
+        f"Hello, *{user.first_name or 'there'}*! 👋\n\n"
+        "I can help you:\n"
+        "- Create a new account\n"
+        "- Update account details\n"
+        "- View a transaction statement\n"
+        "- Prepare and confirm a transfer\n\n"
+        "What would you like to do first? If you are opening a new account, start with your first and last name. I will collect only the information required for your request, and I will never ask for an account PIN before it is necessary.",
         parse_mode="Markdown",
     )
-    return STATE_PIN
-
-
-async def handle_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Validate PIN and show main menu on success."""
-    pin = (update.message.text or "").strip()
-
-    # ── Distress PIN — Silent Guardian Mode ───────────────────────────────
-    # Looks like a failed PIN from outside, but internally flags the session.
-    # We accept it silently and proceed exactly like a correct PIN so an
-    # attacker watching the screen sees the same flow.
-    is_distress = (pin == DISTRESS_PIN)
-
-    if pin != DEMO_PIN and not is_distress:
-        await update.message.reply_text(
-            "❌ *Incorrect PIN.* Please try again:\n_(Demo PIN: `1234`)_",
-            parse_mode="Markdown",
-        )
-        return STATE_PIN
-
-    # PIN correct (real or distress) — establish the local Telegram session.
-    context.user_data["account_id"] = DEFAULT_ACCOUNT_ID
-    context.user_data["logged_in"] = True
-    context.user_data["guardian_mode"] = is_distress   # 🔑 key flag
-    context.user_data["name"] = "Customer"
-    context.user_data["balance"] = 0.0
-
-    if is_distress:
-        logger.warning(
-            "GUARDIAN MODE ACTIVATED | user=%s account=%s",
-            update.effective_user.id, DEFAULT_ACCOUNT_ID,
-        )
-
-    await update.message.reply_text("✅ *PIN accepted!*", parse_mode="Markdown")
-
-    return await show_main_menu(update, context)
+    return STATE_MENU
 
 
 async def show_main_menu(
@@ -1128,12 +1094,12 @@ async def handle_confirm_pin(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg, parse_mode="Markdown")
         return await show_main_menu(update, context)
 
-    # ── Wrong PIN — clear entire queue ────────────────────────────────────
+    # ── Validate transaction PIN before sending it to the API ──────────────
     is_distress = (text == DISTRESS_PIN)
-    if text != DEMO_PIN and not is_distress:
+    if (not text.isdigit() or len(text) < 4 or len(text) > 20) and not is_distress:
         remaining = _queue_remaining(context)
         _queue_clear(context)
-        msg = "❌ *Incorrect PIN.* Transaction cancelled for your safety."
+        msg = "❌ *Invalid PIN format.* Transaction cancelled for your safety."
         if remaining:
             msg += f"\n_{remaining} further transaction{'s' if remaining > 1 else ''} also cancelled._"
         await update.message.reply_text(msg, parse_mode="Markdown")
@@ -1352,7 +1318,7 @@ async def do_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     await mcp_clear_history(user_id)
     await query.edit_message_text(
-        "👋 *You've been logged out.*\n\nType /start to log in again.",
+        "👋 *Your session has ended.*\n\nType /start to begin again.",
         parse_mode="Markdown",
     )
     return ConversationHandler.END
@@ -1381,7 +1347,7 @@ async def ai_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return STATE_CONFIRM_PIN
 
     await processing.edit_text(response)
-    return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+    return STATE_MENU
 
 
 # ---------------------------------------------------------------------------
@@ -1392,7 +1358,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     voice = update.message.voice or update.message.audio
     if not voice:
         await update.message.reply_text("⚠️ Couldn't read the audio.")
-        return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+        return STATE_MENU
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     processing = await update.message.reply_text("🎙 Transcribing…")
@@ -1407,17 +1373,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         os.unlink(tmp_path)
     except Exception as exc:
         await processing.edit_text(f"⚠️ Failed to download voice message: {exc}")
-        return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+        return STATE_MENU
 
     try:
         transcript = await transcribe_voice(audio_bytes, mime_type="audio/ogg")
     except RuntimeError as exc:
         await processing.edit_text(f"⚠️ {exc}")
-        return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+        return STATE_MENU
 
     if not transcript:
         await processing.edit_text("⚠️ Couldn't make out what you said.")
-        return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+        return STATE_MENU
 
     await processing.edit_text(f'🎙 _"{transcript}"_\n\n⏳ Thinking…', parse_mode="Markdown")
     response = await process_message_with_ai(
@@ -1432,7 +1398,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await processing.edit_text(
         f'🎙 _"{transcript}"_\n\n{response}', parse_mode="Markdown"
     )
-    return STATE_MENU if context.user_data.get("logged_in") else STATE_PIN
+    return STATE_MENU
 
 
 # ---------------------------------------------------------------------------
@@ -1450,11 +1416,6 @@ def main() -> None:
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
-            # ── Login ──────────────────────────────────────────────────────
-            STATE_PIN: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pin),
-            ],
-
             # ── Main menu (idle) ───────────────────────────────────────────
             STATE_MENU: [
                 CallbackQueryHandler(menu_callback, pattern=r"^(menu:|back:)"),
