@@ -13,6 +13,7 @@
 		"build": "tsc && node copy-mcp-instructions.mjs",
 		"db:migrate": "tsx db/migrate.ts",
 		"db:generate": "pnpm drizzle-kit generate --dialect=postgresql --schema=db/schema.ts --out=db/migrations",
+		"seed:users": "tsx scripts/seed-users.ts",
 		"dev": "tsx server.ts",
 		"start": "node dist/server.js",
 		"typecheck": "tsc --noEmit"

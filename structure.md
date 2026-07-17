@@ -6,6 +6,8 @@ This file provides a high-level mapping of where related logic resides within th
 
 - `server/` - Core backend application code.
   - `server/controllers/` - Business logic and request handlers.
+  - `server/services/` - Reusable application operations shared by entry points.
+  - `server/scripts/` - Explicit operational and database seeding scripts.
   - `server/routes/` - API route definitions and schema validation.
   - `server/db/` - Database schemas, models, and migrations.
   - `server/mcp/` - Official MCP tools, prompt, and Streamable HTTP transport.
@@ -17,6 +19,8 @@ This file provides a high-level mapping of where related logic resides within th
 - [Root README](README.md)
 - [Server README](server/README.md)
 - [Controllers README](server/controllers/README.md)
+- [Services README](server/services/README.md)
+- [Scripts README](server/scripts/README.md)
 - [Routes README](server/routes/README.md)
 - [Database README](server/db/README.md)
 - [MCP README](server/mcp/README.md)

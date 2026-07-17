@@ -11,3 +11,7 @@ const client = postgres(process.env.DATABASE_URL!);
 // to bypass the overload union narrowing bug in this RC's .d.ts file — the
 // runtime behavior is correct per the driver source.
 export const db = (drizzle as any)({ client, schema });
+
+export async function closeDatabase(): Promise<void> {
+  await client.end();
+}
