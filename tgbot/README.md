@@ -13,7 +13,7 @@ Set these values in Cloud Run or Secret Manager:
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
 
-The application uses Telegram long polling. Its Cloud Run health listener runs in the same process as the polling bot, so failed startup cannot be hidden by a separate HTTP process. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use NEAR AI Cloud first and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
+The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use NEAR AI Cloud first and retry with Gemini when NEAR AI fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
 
 To find the Telegram polling startup and update handling logic visit [bot.py](bot.py).
 

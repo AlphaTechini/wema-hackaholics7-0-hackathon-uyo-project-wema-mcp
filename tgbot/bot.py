@@ -22,8 +22,6 @@ import logging
 import os
 import tempfile
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
 from typing import Any, Optional
 
 import httpx
@@ -63,7 +61,6 @@ GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 AI_TIMEOUT_SECONDS: float = float(os.getenv("AI_TIMEOUT_SECONDS", "15"))
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
-PORT: int = int(os.getenv("PORT", "8080"))
 
 # Gemini handles transcription natively via the same OpenAI-compat endpoint.
 TRANSCRIPTION_MODEL: str = os.getenv("TRANSCRIPTION_MODEL", "gemini-2.5-flash-lite")
@@ -1445,36 +1442,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 # Main — wire everything together
 # ---------------------------------------------------------------------------
 
-def start_health_server() -> None:
-    """Expose the Cloud Run port from the bot process itself."""
-
-    class HealthHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
-            self.send_response(200)
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            return
-
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthHandler)
-    Thread(target=server.serve_forever, daemon=True).start()
-    logger.info("Health listener ready on port %s", PORT)
-
-
 def main() -> None:
-    logger.info("Bot process initialization started")
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
     if not NEAR_AI_API_KEY:
         raise ValueError("NEAR_AI_API_KEY is not set")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set")
-
-    logger.info("Bot configuration validated")
-    start_health_server()
-    logger.info("Building Telegram application")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    logger.info("Telegram application built")
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
@@ -1533,7 +1508,6 @@ def main() -> None:
     )
 
     app.add_handler(conv)
-    logger.info("Telegram handlers registered")
 
     logger.info(
         "Bot starting — polling  primary: %s/%s  fallback: gemini/%s  MCP: %s",
