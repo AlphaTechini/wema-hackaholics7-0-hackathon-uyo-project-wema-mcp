@@ -90,7 +90,7 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot.
+Set `MCP_SERVER_URL` to the deployed API MCP endpoint before starting the bot. Webhook mode also requires `WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_PATH`, and `TELEGRAM_WEBHOOK_SECRET`.
 
 ## Docker Deployment
 
@@ -106,7 +106,7 @@ For the Telegram bot Cloud Run service, set the source root to `tgbot/` and set 
 docker build -f Dockerfile -t wema-telegram-bot .
 ```
 
-Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, and `DEFAULT_ACCOUNT_ID` on the Telegram bot service. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
+Deploy the two images as separate Cloud Run services. Configure `DATABASE_URL` on the API service. Configure `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `MCP_SERVER_URL`, `DEFAULT_ACCOUNT_ID`, `WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_PATH`, and `TELEGRAM_WEBHOOK_SECRET` on the Telegram bot service. The bot registers its webhook with Telegram during startup. Secrets should be supplied through Google Cloud Secret Manager or the Cloud Run environment configuration, not committed to the repository.
 
 ## Security Notes
 

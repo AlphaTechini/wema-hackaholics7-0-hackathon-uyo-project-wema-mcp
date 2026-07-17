@@ -1,5 +1,6 @@
 # Telegram bot
-python-telegram-bot==21.6
+python-telegram-bot[webhooks]==21.6
+tornado==6.5.5
 
 # OpenRouter / OpenAI-compatible client
 openai==1.40.0

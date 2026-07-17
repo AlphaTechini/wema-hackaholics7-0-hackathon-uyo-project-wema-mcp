@@ -14,6 +14,5 @@ COPY prompts/ prompts/
 ENV PORT=8080
 EXPOSE $PORT
 
-# Start a simple HTTP server in the background to satisfy Cloud Run's port health check,
-# then start the Telegram bot (which runs via long-polling) in the foreground.
-CMD python -m http.server $PORT & python bot.py
+# The bot owns the HTTP listener and receives Telegram webhook requests directly.
+CMD ["python", "bot.py"]
