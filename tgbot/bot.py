@@ -1,7 +1,7 @@
 """
 bot.py
 ------
-Telegram banking bot backed by the Wema MCP API + Groq/Gemini AI.
+Telegram banking bot backed by the Wema MCP API + Electron Hub/Gemini AI.
 
 Flow
 ----
@@ -10,7 +10,7 @@ Flow
               ├── 💸 Transfer      → ask account → ask amount → confirm → send
               └── 📋 History       → fetch statement through MCP
 
-Free-text at any time falls through to the Groq assistant with Gemini failover.
+Free-text at any time falls through to Electron Hub with Gemini failover.
 Voice messages are transcribed then handled the same way.
 """
 
@@ -26,7 +26,6 @@ from typing import Any, Optional
 import httpx
 from dotenv import load_dotenv
 from openai import OpenAI
-from groq import Groq
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -54,10 +53,9 @@ load_dotenv(f".env.{_env}", override=True)
 # ---------------------------------------------------------------------------
 
 TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
-GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+ELECTRONHUB_API_KEY: str = os.getenv("ELECTRONHUB_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
-GROQ_REASONING_EFFORT: str = os.getenv("GROQ_REASONING_EFFORT", "none")
+ELECTRONHUB_MODEL: str = os.getenv("ELECTRONHUB_MODEL", "deepseek-v4-flash")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MCP_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:3870/mcp")
 DEFAULT_ACCOUNT_ID: str = os.getenv("DEFAULT_ACCOUNT_ID", "1000000000")
@@ -113,7 +111,16 @@ logger = logging.getLogger(__name__)
 # AI provider clients
 # ---------------------------------------------------------------------------
 
-groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=30.0) if GROQ_API_KEY else None
+electronhub_client = (
+    OpenAI(
+        base_url="https://api.electronhub.ai/v1",
+        api_key=ELECTRONHUB_API_KEY,
+        max_retries=0,
+        timeout=30.0,
+    )
+    if ELECTRONHUB_API_KEY
+    else None
+)
 gemini_client = (
     OpenAI(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -126,7 +133,7 @@ gemini_client = (
 )
 
 AI_PROVIDERS: dict[str, tuple[Any, str]] = {
-    "groq": (groq_client, GROQ_MODEL),
+    "electronhub": (electronhub_client, ELECTRONHUB_MODEL),
     "gemini": (gemini_client, GEMINI_MODEL),
 }
 
@@ -264,8 +271,6 @@ def _chat(provider: str, messages: list[dict], **kwargs):
     provider_client, model = AI_PROVIDERS[provider]
     if provider_client is None:
         raise RuntimeError(f"{provider} API key is not configured")
-    if provider == "groq":
-        kwargs.setdefault("reasoning_effort", GROQ_REASONING_EFFORT)
     return provider_client.chat.completions.create(
         model=model,
         messages=messages,
@@ -276,7 +281,7 @@ def _chat(provider: str, messages: list[dict], **kwargs):
 
 
 def _provider_order(preferred_provider: str | None) -> list[str]:
-    providers = ["groq", "gemini"]
+    providers = ["electronhub", "gemini"]
     if preferred_provider in providers:
         providers.remove(preferred_provider)
         providers.insert(0, preferred_provider)
@@ -305,7 +310,12 @@ def _chat_with_failover(
 
 def _message_payload(message: Any) -> dict:
     if hasattr(message, "model_dump"):
-        return message.model_dump(exclude_none=True)
+        payload = message.model_dump(exclude_none=True)
+        return {
+            key: payload[key]
+            for key in ("role", "content", "tool_calls", "name")
+            if key in payload
+        }
     return message if isinstance(message, dict) else dict(message)
 
 
@@ -1440,8 +1450,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 def main() -> None:
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY is not set")
+    if not ELECTRONHUB_API_KEY:
+        raise ValueError("ELECTRONHUB_API_KEY is not set")
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set")
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -1506,8 +1516,8 @@ def main() -> None:
 
     logger.info(
         "Bot starting — polling  primary: %s/%s  fallback: gemini/%s  MCP: %s",
-        "groq",
-        GROQ_MODEL,
+        "electronhub",
+        ELECTRONHUB_MODEL,
         GEMINI_MODEL,
         MCP_URL,
     )

@@ -5,15 +5,14 @@ The Telegram service polls Telegram and forwards banking tool calls to the Wema 
 Set these values in Cloud Run or Secret Manager:
 
 - `TELEGRAM_BOT_TOKEN`: token issued by BotFather.
-- `GROQ_API_KEY`: primary Groq inference key.
+- `ELECTRONHUB_API_KEY`: primary Electron Hub inference key.
 - `GEMINI_API_KEY`: Gemini API key used by the assistant.
-- `GROQ_MODEL`: primary model, defaulting to `qwen/qwen3-32b`.
-- `GROQ_REASONING_EFFORT`: Groq reasoning mode, defaulting to `none` for responsive chat.
+- `ELECTRONHUB_MODEL`: primary model, defaulting to `deepseek-v4-flash`.
 - `GEMINI_MODEL`: fallback model, defaulting to `gemini-2.5-flash-lite`.
 - `MCP_SERVER_URL`: deployed API endpoint ending in `/mcp`.
 - `DEFAULT_ACCOUNT_ID`: fallback account identifier for demo operations.
 
-The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use Groq first and retry with Gemini when Groq fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
+The application uses Telegram long polling. Configure Cloud Run with one minimum instance, one maximum instance, and always-allocated CPU. Chat requests use Electron Hub first and retry with Gemini when Electron Hub fails. Voice transcription remains on Gemini because the configured transcription models are Gemini models.
 
 To find the Telegram polling startup and update handling logic visit [bot.py](bot.py).
 
