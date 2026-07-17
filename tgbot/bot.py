@@ -185,6 +185,10 @@ SYSTEM_PROMPT = (
     "ACCOUNT CREATION:\n"
     "  Account opening is handled by the bot's secure native flow. Do not offer or call account-creation tools.\n\n"
 
+    "ACCOUNT SWITCHING:\n"
+    "  After the first failed account-login verification, explicitly tell the user: 'Verification failed. You have two more trials for any type of account login. Otherwise, you will be permanently banned.'\n"
+    "  Always state the remaining number of account-login trials after a failed verification.\n\n"
+
     "TRANSFER RULES:\n"
     "  create_transfer requires sender_acc, receiver_acc, amount, and PIN.\n"
     "  The bot collects the PIN through its confirmation gate before dispatch.\n"
